@@ -7,7 +7,7 @@
   const currentTheme = () => root.dataset.theme || (darkMQ.matches ? "dark" : "light");
   // Status bar / browser chrome colour follows a manual theme choice, not only the OS setting.
   const syncThemeColor = () => {
-    const color = { light: "#f1f2f0", dark: "#101112" };
+    const color = { light: "#ffffff", dark: "#161616" };
     document.querySelectorAll("meta[data-theme-color]").forEach((m) => {
       m.content = root.dataset.theme ? color[root.dataset.theme] : color[m.dataset.themeColor];
     });
@@ -88,7 +88,14 @@
     const revealIO = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting) show(e.target); });
       // Settle anything the reader jumped past (anchor links), so nothing stays hidden above.
-      revealables.forEach((el) => { if (!el.classList.contains("is-in") && el.getBoundingClientRect().bottom < 0) show(el); });
+      // Only blocks earlier in the page than a newly visible one can have been skipped,
+      // so normal scrolling reads no layout at all.
+      const lastIn = Math.max(-1, ...entries.filter((e) => e.isIntersecting).map((e) => revealables.indexOf(e.target)));
+      const skipped = revealables.slice(0, lastIn).filter((el) => !el.classList.contains("is-in"));
+      if (skipped.length) {
+        const bottoms = skipped.map((el) => el.getBoundingClientRect().bottom);
+        skipped.forEach((el, i) => { if (bottoms[i] < 0) show(el); });
+      }
     }, { rootMargin: "0px 0px -12% 0px", threshold: 0.01 });
     revealables.forEach((el) => revealIO.observe(el));
   } else {
@@ -96,6 +103,16 @@
   }
 
   document.querySelectorAll(".mobile-menu nav > *").forEach((el, i) => el.style.setProperty("--i", String(i)));
+
+  /* ---------- marquee: motion longer than 5 s gets a pause control ---------- */
+  const marqueeWrap = document.querySelector(".marquee-wrap");
+  const marqueeToggle = document.querySelector("[data-marquee-toggle]");
+  marqueeToggle?.addEventListener("click", () => {
+    const paused = marqueeToggle.getAttribute("aria-pressed") !== "true";
+    marqueeToggle.setAttribute("aria-pressed", String(paused));
+    marqueeToggle.setAttribute("aria-label", paused ? "Запустить бегущую строку" : "Остановить бегущую строку");
+    marqueeWrap.classList.toggle("is-paused", paused);
+  });
 
   /* ---------- process: sticky image follows the active step ---------- */
   const steps = [...document.querySelectorAll(".step[data-stage]")];
@@ -135,6 +152,10 @@
       field.querySelector(".field__error").hidden = ok;
       return ok;
     };
+    let dirty = false;
+    form.addEventListener("input", () => { dirty = [...form.elements].some((el) => el.value && el.value.trim()); });
+    window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
     form.addEventListener("focusout", (e) => { if (e.target.matches("input") && e.target.value) check(e.target); });
     form.addEventListener("input", (e) => { if (e.target.closest(".has-error")) check(e.target); });
 
@@ -149,7 +170,7 @@
         return;
       }
       submit.setAttribute("aria-busy", "true");
-      label.textContent = "Отправляем";
+      label.textContent = "Отправляем…";
       status.className = "form__status";
       status.textContent = "";
       try {
@@ -163,6 +184,7 @@
         const res = await fetch(FORM_ENDPOINT, { method: "POST", body: new FormData(form) });
         if (!res.ok) throw new Error(String(res.status));
         form.reset();
+        dirty = false;
         status.className = "form__status is-success";
         status.textContent = "Заявка отправлена. Мы свяжемся с вами в течение рабочего дня.";
       } catch (err) {
