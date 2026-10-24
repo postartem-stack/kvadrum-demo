@@ -1,0 +1,69 @@
+name: KAN-4 mobile QA
+on:
+  push:
+    branches:
+      - KAN-4-mobile-hero-preload
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install QA tools
+        run: |
+          npm install --no-save playwright lighthouse
+          npx playwright install chromium --with-deps
+      - name: Start local preview
+        run: |
+          python3 -m http.server 8080 --bind 127.0.0.1 > /tmp/kvadrum-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/ >/dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Mobile interactions and screenshots
+        run: |
+          mkdir -p qa-output
+          node <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({headless:true,args:['--no-sandbox']});
+            try {
+              for (const width of [320,375,768,1280]) {
+                const page = await browser.newPage({viewport:{width,height:850},deviceScaleFactor:1});
+                await page.goto('http://127.0.0.1:8080/',{waitUntil:'networkidle'});
+                await page.screenshot({path:'qa-output/viewport-'+width+'.png',fullPage:true});
+                const overflow = await page.evaluate(()=>document.documentElement.scrollWidth > window.innerWidth + 1);
+                if (overflow) throw new Error('Horizontal overflow at '+width);
+                const broken = await page.evaluate(() => [...document.querySelectorAll('a[href^="#"]')]
+                  .filter(a => a.getAttribute('href').length > 1 && !document.getElementById(a.hash.slice(1)))
+                  .map(a => a.outerHTML));
+                if (broken.length) throw new Error('Broken anchors at '+width+': '+broken.join(', '));
+                const brokenImages = await page.locator('img').evaluateAll(imgs=>imgs.filter(i=>!i.complete || i.naturalWidth===0).map(i=>i.src));
+                if (brokenImages.length) throw new Error('Broken images at '+width+': '+brokenImages);
+                console.log('PASS',width,'px');
+                await page.close();
+              }
+            } finally { await browser.close(); }
+          })().catch(e=>{ console.error(e);process.exit(1); });
+          JS
+      - name: Lighthouse mobile
+        if: always()
+        run: |
+          mkdir -p qa-output
+          npx lighthouse http://127.0.0.1:8080/ --chrome-flags="--headless --no-sandbox" --only-categories=performance,accessibility,best-practices,seo --preset=perf --output=json --output=html --output-path=qa-output/lighthouse-mobile || true
+      - name: Upload reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kan-4-mobile-qa
+          path: qa-output/
+          retention-days: 14
