@@ -508,6 +508,22 @@ section { padding-block: var(--section); }
   .js .hero__media { animation: unmask 1000ms var(--ease-in-out) both; }
   .js .hero__media img { animation: settle 1400ms var(--ease-out) both; }
 
+  /* Keep above-the-fold content visible immediately on narrow screens.
+     Desktop retains the original editorial entrance. */
+  @media (max-width: 899px) {
+    .js .hero__title .line > span,
+    .js .hero__title .line:nth-child(2) > span,
+    .js .hero__lead,
+    .js .hero__ctas,
+    .js .hero__media,
+    .js .hero__media img {
+      animation: none;
+      opacity: 1;
+      transform: none;
+      clip-path: none;
+    }
+  }
+
   .js main > :not(.hero) [data-reveal] {
     opacity: 0; transform: translateY(20px);
     transition: opacity 600ms var(--ease-out), transform 600ms var(--ease-out);
