@@ -47,20 +47,21 @@ jobs:
                   .filter(a => a.getAttribute('href').length > 1 && !document.getElementById(a.hash.slice(1)))
                   .map(a => a.outerHTML));
                 if (broken.length) throw new Error('Broken anchors at '+width+': '+broken.join(', '));
-                // Lazy images are intentionally not loaded until they enter the viewport.
-                await page.locator('img').evaluateAll(async imgs => {
-                  for (const img of imgs) {
-                    img.scrollIntoView({block:'center'});
-                    await new Promise(resolve => {
-                      if (img.complete) return resolve();
-                      img.addEventListener('load',resolve,{once:true});
-                      img.addEventListener('error',resolve,{once:true});
-                      setTimeout(resolve,5000);
-                    });
-                  }
-                });
-                const brokenImages = await page.locator('img').evaluateAll(imgs=>imgs.filter(i=>!i.complete || i.naturalWidth===0).map(i=>i.src));
-                if (brokenImages.length) throw new Error('Broken images at '+width+': '+brokenImages);
+                // Check whether each image URL exists, including hidden carousel slides.
+                // loading=lazy images inside inactive slides need not be decoded yet.
+                const imagePaths = await page.locator('img').evaluateAll(imgs =>
+                  [...new Set(imgs.map(img => new URL(img.currentSrc || img.src, location.href).href))]);
+                const brokenImages = [];
+                for (const imageUrl of imagePaths) {
+                  const response = await page.request.get(imageUrl);
+                  if (!response.ok() || !response.headers()['content-type']?.startsWith('image/'))
+                    brokenImages.push(imageUrl + ' (' + response.status() + ')');
+                }
+                if (brokenImages.length) throw new Error('Broken image resources at '+width+': '+brokenImages);
+                // Loaded visible imagery must also decode.
+                const visibleBroken = await page.locator('img:visible').evaluateAll(imgs =>
+                  imgs.filter(img=>img.complete && img.naturalWidth===0).map(img=>img.src));
+                if (visibleBroken.length) throw new Error('Visible broken images at '+width+': '+visibleBroken);
                 console.log('PASS',width,'px');
                 await page.close();
               }
