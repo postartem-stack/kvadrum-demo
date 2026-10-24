@@ -47,6 +47,18 @@ jobs:
                   .filter(a => a.getAttribute('href').length > 1 && !document.getElementById(a.hash.slice(1)))
                   .map(a => a.outerHTML));
                 if (broken.length) throw new Error('Broken anchors at '+width+': '+broken.join(', '));
+                // Lazy images are intentionally not loaded until they enter the viewport.
+                await page.locator('img').evaluateAll(async imgs => {
+                  for (const img of imgs) {
+                    img.scrollIntoView({block:'center'});
+                    await new Promise(resolve => {
+                      if (img.complete) return resolve();
+                      img.addEventListener('load',resolve,{once:true});
+                      img.addEventListener('error',resolve,{once:true});
+                      setTimeout(resolve,5000);
+                    });
+                  }
+                });
                 const brokenImages = await page.locator('img').evaluateAll(imgs=>imgs.filter(i=>!i.complete || i.naturalWidth===0).map(i=>i.src));
                 if (brokenImages.length) throw new Error('Broken images at '+width+': '+brokenImages);
                 console.log('PASS',width,'px');
